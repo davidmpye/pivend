@@ -294,18 +294,18 @@ void calculate_flipflop_data(char *address_to_vend, uint8_t *buf) {
     //0x20 - Gum and mint row drive (no odd/even) 
 
     uint8_t bit_offset = 0;
+    
+    //if it's an odd row, add one to the bit offset to push it to the _ODD_ROW_DRV
+    if (address_to_vend[1]%2 != 0) bit_offset += 1;
+
     if (address_to_vend[0] <='D') {
         //A-D are on  U4
-        bit_offset = (address_to_vend[0] - 'A') * 2;
-        //if it's an odd row, add one to the bit offset to push it to the _ODD_ROW_DRV
-        if (address_to_vend[1]%2 != 0) bit_offset += 1;
+        bit_offset += (address_to_vend[0] - 'A') * 2;
         buf[2] |= (0x01 << bit_offset);
     }
     else {
         //E and F are on U2
-        bit_offset = (address_to_vend[0] - 'E') * 2;
-        //if it's an odd row, add one to the bit offset to push it to the _ODD_ROW_DRV
-        if (address_to_vend[1]%2 != 0) bit_offset += 1;
+        bit_offset += (address_to_vend[0] - 'E') * 2;
         buf[0] |= (0x01 << bit_offset);
     }
 }
