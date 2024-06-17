@@ -170,7 +170,7 @@ void vend_driver_map_machine() {
     //Go through each of the motor row and column combinations, and pulse the motor driver so briefly nothing moves
     //Read the comparator sense lines to work out if the motor is present, and if it is homed.
     //That way, we can map out what trays/motors are installed and available in our machine.
-    gpio_set_dir_out_masked(0xFF);
+    switch_to_output();
 
     for (int i=0; i<12; ++i) {
         //12 row drive options - A-F *2 (odd/even)
@@ -294,7 +294,7 @@ void calculate_flipflop_data(char *address_to_vend, uint8_t *buf) {
     //0x20 - Gum and mint row drive (no odd/even) 
 
     uint8_t bit_offset = 0;
-    
+
     //if it's an odd row, add one to the bit offset to push it to the _ODD_ROW_DRV
     if (address_to_vend[1]%2 != 0) bit_offset += 1;
 
