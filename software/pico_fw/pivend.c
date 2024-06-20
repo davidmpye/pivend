@@ -11,7 +11,6 @@
 #include "hardware/gpio.h"
 #include "tusb.h"
 
-
 #include "vend_driver.h"
 
 int main() {
@@ -23,11 +22,8 @@ int main() {
     while (!tud_connected()) {
 
     }
-    sleep_ms(2000); 
-
+    //Start with chiller off
+    vend_driver_set_chiller_state(false);
     vend_driver_map_machine();
 
-    sleep_ms(5000);
-  vend_item("A0");
-  vend_item("B3");
 }

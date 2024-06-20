@@ -32,7 +32,9 @@ void vend_driver_map_machine();
 //Attempt to vend the item specified at address row (e.g. "A2")
 //Note: If you attempt to vend a previously stuck row, it will attempt to vend each time.  It's up to you to record
 //if a motor was jammed, and decide whether to "Select another item" or try to vend.
-vend_result vend_item(char *row);
+//It *wont* try to vend a can if it thinks there aren't any cans, and will instead return VEND_FAIL_NO_CAN.
+//If you want it to try to vend an empty can-row, eg as a test vend, then set override to true.
+vend_result vend_item(char *, bool);
 
 //Set whether you want the triac to be on or off to activate the compressor
 void set_chiller_state(bool);

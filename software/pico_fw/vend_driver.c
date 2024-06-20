@@ -38,12 +38,14 @@ void switch_to_input() {
     gpio_set_dir_in_masked(0xFF);
     //Enable the buffer, wait 2uSec the buffer to present its' data
     gpio_put(BUF_GPIO, false);
-    sleep_us(2);
 }
 
 void switch_to_output() {
     //Switch back to output
     gpio_set_dir(BUF_GPIO, true);
+    //Chcek the buffer is disabled
+    gpio_put(BUF_GPIO, true);
+
     gpio_set_dir_out_masked(0xFF);
 }
 
@@ -58,19 +60,15 @@ void flipflop_clear() {
     gpio_put(FLIPFLOP_CLR, true);
 }
 
-vend_result vend_item(char *address) {
+vend_result vend_item(char *address, bool override) {
 
    uint8_t buf[3];
    calculate_flipflop_data(address, buf);
 
-   printf("Flip flop data: ");
-   for (int i=0; i<3; ++i) {
-        printf("0x%02X", buf[i]);
-   }
-   printf("\n");
-   printf("Vending");
+   printf("Vending %c%c ", address[0], address[1]);;
     //Send the flipflop data - motors then powered.
     flipflop_output(buf);
+
     switch_to_input();
 
     //bit 0x01 goes high on even row when homed
@@ -94,12 +92,19 @@ vend_result vend_item(char *address) {
             no_can_gpio = 7;
         }
 
-        //Check if there is a can - if not, abort vend.
-        //NB The machine is set up so it WILL NOT vend the last can...!
+        //Check if there is a >1 can present
+        //NB The machine is designed so it WILL NOT vend the last can...!
+        sleep_us(200);
         if (!gpio_get(no_can_gpio)) {
-            printf("NO CAN - abort\n");
-            stop_motors();
-            return false;
+            //No can present
+            if (override) {
+                printf("No can - vending anyway");
+            }
+            else {
+                printf("No can present - aborting vend\n");
+                stop_motors();
+                return VEND_FAIL_NO_CAN;
+            }
         }
     }
 
@@ -137,6 +142,8 @@ vend_result vend_item(char *address) {
 	}
 	printf("Homed - Vend success\r\n"); 
 	stop_motors();
+    sleep_ms(250);
+    //We wait 500mS before returning to allow all microswitches etc to settle.
     return VEND_SUCCESS;
  }
 
@@ -148,7 +155,7 @@ void stop_motors() {
 void flipflop_output(uint8_t *data) {
     switch_to_output();
     //Automatically add in the desired triac state to U2's data (it's bit 4)
-    gpio_put_masked(0x000000FF, chiller_state ? data[0] : data[0] | 0x10 );
+    gpio_put_masked(0x000000FF, chiller_state ? data[0] | 0x10 : data[0]);
     gpio_put(U2_CLK, true);
     sleep_us(2);
     gpio_put(U2_CLK, false);
@@ -174,36 +181,51 @@ void vend_driver_map_machine() {
 
     for (int i=0; i<12; ++i) {
         //12 row drive options - A-F *2 (odd/even)
-        if (i<=7) {
+        if (i<8) {
             //U4
             gpio_put_masked(0xFF, 0x01 << i);
             //Clock pulse U4
             gpio_put(U4_CLK, true);
             sleep_us(2);
             gpio_put(U4_CLK, false);
-        }
-        else {
-            //U2
-            gpio_put_masked(0xFF, 0x00 <<i-8);
+
+            gpio_put_masked(0xFF, 0x00);
             //Clock pulse U2
             gpio_put(U2_CLK, true);
             sleep_us(2);
             gpio_put(U2_CLK, false);
         }
+        else {
+            //Rows E-F are on U2
+            gpio_put_masked(0xFF, 0x01 <<i-8);
+
+            //Clock pulse U2
+            gpio_put(U2_CLK, true);
+            sleep_us(2);
+            gpio_put(U2_CLK, false);
+
+            gpio_put_masked(0xFF, 0x00);  
+            gpio_put(U4_CLK, true);
+            sleep_us(2);
+            gpio_put(U4_CLK, false);
+        }
 
         for (int j=0; j<5; ++j) {
             //There are five column drives
             //Pulse U3.
-            gpio_put_masked(0xFF, 0x00<<j);
+
+            gpio_put_masked(0xFF, 0x01<<j);
             gpio_put(U3_CLK, true);
             sleep_us(2);
             gpio_put(U3_CLK, false);
 
-            switch_to_input();
+            switch_to_input();  
+            //need about 200uSec to get a sensible reading from the buffer
+            sleep_us(200);
             uint8_t result = gpio_get_all() & 0xFF;
             switch_to_output();
 
-            //Unpulse U3.
+            //Unpulse U3 so nothing goes round!
             gpio_put_masked(0xFF, 0x00);
             gpio_put(U3_CLK, true);
             sleep_us(2);
@@ -212,8 +234,8 @@ void vend_driver_map_machine() {
             //Now interpret the result.
             //bit 0x01 goes high on even row when homed
             //bit 0x02 goes high on ODD row when homed.
-            bool present, homed;
-            if (i < 9) {
+            bool present, homed, no_can;
+            if (i < 8) {
                 if (i%2 != 0) {
                     //Odd row
                     present = result & 0x01;
@@ -224,26 +246,37 @@ void vend_driver_map_machine() {
                     homed = result & 0x01;
                 }
             }
-            else {
-                //FIXME CANS
+            else if (i == 8 || i ==9 ) {
+                present = true;
+                homed = result & (0x01 << 4);
+                no_can = result & (0x01 << 5);
 
+            }
+            else if (i == 10|| i == 11) {
+                present = true;
+                homed = result & (0x01 << 6);
+                no_can =  result & (0x01 << 7);
 
             }
             //Work out what address we've checked
             char row = i/2 + 'A';
             char col = j*2 + i%2 + '0';
-            printf("%c%c", row, col);
-            printf(" - ");
-            if (!present) {
-                printf ("NOT present\n");
+          
+          if (present) { 
+            printf("%c%c - PRESENT - ", row, col);
+            if (!homed) {
+                printf("NOT homed ");
             }
-            else {
-                printf("Present, ");
-                if (!homed) {
-                    printf("NOT");
-                }
-                printf("Homed\n");
+            else printf("Homed ");
+
+            if (row == 'E' || row == 'F') { 
+                printf("0x%2x - ", result&0xFF);
+                if (!no_can ) printf("NO CAN");
+                else printf("CAN");
+                printf("\n");
             }
+            else printf("\n");
+          }
         }
     }
 }
@@ -251,9 +284,6 @@ void vend_driver_map_machine() {
 
 void calculate_flipflop_data(char *address_to_vend, uint8_t *buf) {
     buf[0] = buf[1] = buf[2] = 0x00;
-   /* if (cooling_on) {
-        buf[0] = 0x10;
-    }*/
     //Calculate column to drive
     //The column drivers are as follows (U3):
     //0x01 - Cols 0,1
@@ -262,16 +292,8 @@ void calculate_flipflop_data(char *address_to_vend, uint8_t *buf) {
     //0x08 - Cols 6,7
     //0x10 - Cols 8,9
 
-    //set the drive state for the column
-    if (address_to_vend[0] == 'E' || address_to_vend[0]== 'F') {
-        //For some reason, the cans are labelled 'F0, F1, F2 F3' but drive as F0, F2, F4, F6.
-        buf[1] |= 0x01 << ((address_to_vend[1]-'0'));
-    }   
-    else {
-        //Standard drive.
-        buf[1] |= 0x01 << ((address_to_vend[1]-'0') / 2);
-    }
-    
+    buf[1] |= 0x01 << ((address_to_vend[1]-'0') / 2);
+
     //Configure row drive.
     //Rows are:
     //U4:
