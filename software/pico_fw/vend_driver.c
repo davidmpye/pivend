@@ -1,6 +1,6 @@
 #include "vend_driver.h"
 
-//GPIO mappings
+//GPIO mappings for the vend driver board.
 #define BUF_GPIO 8
 #define FLIPFLOP_CLR 9
 
@@ -10,8 +10,31 @@
 
 #define VEND_GPIO_MASK 0x00001FFF
 
+//The triac for the compressor for the fridge is bit 0x10 on U2 - it's defined in flipflop_output
+
+//Prototypes
+void switch_to_input(void);
+void switch_to_output(void);
+void flipflop_clear(void);
+void stop_motors(void);
+void calculate_flipflop_data(char *addr, uint8_t *buf);
+void flipflop_output(uint8_t *buf);
+
+//Internal states
+char str_errors[][MAX_ERR_STR_LENGTH] = { 
+    "Success",
+    "Motor not home at start of cycle",
+    "Item drop not detected",
+    "Invalid address",
+    "Motor jammed in home position",
+    "Motor jammed in not-home position",
+    "Less than two cans present",
+    "Unknown failure"
+};
+
 bool chiller_state = false;
 
+//Functions start here
 void vend_driver_init() {
     //Init GPIOs 0-12 (will start as input by default)
     gpio_init_mask(VEND_GPIO_MASK);
@@ -38,6 +61,7 @@ void switch_to_input() {
     gpio_set_dir_in_masked(0xFF);
     //Enable the buffer, wait 2uSec the buffer to present its' data
     gpio_put(BUF_GPIO, false);
+    sleep_us(150);
 }
 
 void switch_to_output() {
@@ -45,7 +69,7 @@ void switch_to_output() {
     gpio_set_dir(BUF_GPIO, true);
     //Chcek the buffer is disabled
     gpio_put(BUF_GPIO, true);
-
+    sleep_us(150);
     gpio_set_dir_out_masked(0xFF);
 }
 
@@ -61,11 +85,14 @@ void flipflop_clear() {
 }
 
 vend_result vend_item(char *address, bool override) {
+    //Sanity check the address
+    if (address[0] < 'A' || address[0] > 'G' || address[1] < '0' || address['1'] > '9')
+        return VEND_FAIL_INVALID_ADDRESS;
 
-   uint8_t buf[3];
-   calculate_flipflop_data(address, buf);
+    //Calculate the flipflop data for the address.
+    uint8_t buf[3];
+    calculate_flipflop_data(address, buf);
 
-   printf("Vending %c%c ", address[0], address[1]);;
     //Send the flipflop data - motors then powered.
     flipflop_output(buf);
 
@@ -94,24 +121,24 @@ vend_result vend_item(char *address, bool override) {
 
         //Check if there is a >1 can present
         //NB The machine is designed so it WILL NOT vend the last can...!
-        sleep_us(200);
         if (!gpio_get(no_can_gpio)) {
             //No can present
-            if (override) {
-                printf("No can - vending anyway");
-            }
-            else {
-                printf("No can present - aborting vend\n");
+            if (!override) {
                 stop_motors();
                 return VEND_FAIL_NO_CAN;
             }
         }
     }
 
+    if ((!gpio_get(motor_pos_gpio)) && !override) {
+        //If this row is not home, and override is not set, then we should not vend it.
+        stop_motors();
+        return VEND_FAIL_NOT_HOME;
+    }
+
     //Common vend pathway for all rows now.
     //Motor should now be starting to move - it has up to a second to have left home.
     bool timeout = true;
-    printf("Waiting for motor to leave home");
 	for (int i=0; i<20; ++i) {
  	    if (!gpio_get(motor_pos_gpio)) {
 		    timeout = false;
@@ -121,12 +148,11 @@ vend_result vend_item(char *address, bool override) {
 	}
 
 	if (timeout) {
-		printf("Timed out waiting for row to leave home\r\n");
         stop_motors();
 		return VEND_FAIL_MOTOR_STUCK_HOME;
 	}
 	
-	printf("Moving, waiting for max 4 seconds to return home");
+    //We wait an additional four seconds for the motor to have completed its' cycle and returned home.
 	timeout = false;
 	for (int i=0; i<80; ++i) {
 		if (gpio_get(motor_pos_gpio)) {
@@ -136,14 +162,10 @@ vend_result vend_item(char *address, bool override) {
 		sleep_ms(50);
 	}
 	if (timeout) {
-		printf("\r\nTimed out waiting for motor to return home - jammed?\r\n");
 		stop_motors();
 		return VEND_FAIL_MOTOR_STUCK_NOT_HOME;
 	}
-	printf("Homed - Vend success\r\n"); 
 	stop_motors();
-    sleep_ms(250);
-    //We wait 500mS before returning to allow all microswitches etc to settle.
     return VEND_SUCCESS;
  }
 
@@ -153,23 +175,28 @@ void stop_motors() {
 }
 
 void flipflop_output(uint8_t *data) {
+    //Clock the data out to the flipflops in order
     switch_to_output();
-    //Automatically add in the desired triac state to U2's data (it's bit 4)
-    gpio_put_masked(0x000000FF, chiller_state ? data[0] | 0x10 : data[0]);
-    gpio_put(U2_CLK, true);
-    sleep_us(2);
-    gpio_put(U2_CLK, false);
-    sleep_us(2); 
-    gpio_put_masked(0x000000FF, data[1]);
-    gpio_put(U3_CLK, true);
-    sleep_us(2);
-    gpio_put(U3_CLK, false);
-    sleep_us(2); 
-    gpio_put_masked(0x000000FF, data[2]);
-    gpio_put(U4_CLK, true);
-    sleep_us(2);
-    gpio_put(U4_CLK, false);
-    sleep_us(2);    
+
+    uint32_t clock_pins[] = {
+        U2_CLK,
+        U3_CLK, 
+        U4_CLK,
+    };
+
+    if (chiller_state) {
+        //Automatically add in the desired triac state to U2's data (it's bit 4)
+        data[0] |= 0x10;
+    }
+
+    for (int i=0; i<3; ++i) {
+        gpio_put_masked(0xFF, data[i]);
+        //Toggle the clock pins
+        gpio_put(clock_pins[i], true);
+        sleep_us(2);
+        gpio_put(clock_pins[i], false);
+        sleep_us(2);
+    }
 }
 
 
@@ -180,56 +207,29 @@ void vend_driver_map_machine() {
     switch_to_output();
 
     for (int i=0; i<12; ++i) {
-        //12 row drive options - A-F *2 (odd/even)
-        if (i<8) {
-            //U4
-            gpio_put_masked(0xFF, 0x01 << i);
-            //Clock pulse U4
-            gpio_put(U4_CLK, true);
-            sleep_us(2);
-            gpio_put(U4_CLK, false);
+        uint8_t buf[3];
 
-            gpio_put_masked(0xFF, 0x00);
-            //Clock pulse U2
-            gpio_put(U2_CLK, true);
-            sleep_us(2);
-            gpio_put(U2_CLK, false);
-        }
-        else {
-            //Rows E-F are on U2
-            gpio_put_masked(0xFF, 0x01 <<i-8);
-
-            //Clock pulse U2
-            gpio_put(U2_CLK, true);
-            sleep_us(2);
-            gpio_put(U2_CLK, false);
-
-            gpio_put_masked(0xFF, 0x00);  
-            gpio_put(U4_CLK, true);
-            sleep_us(2);
-            gpio_put(U4_CLK, false);
-        }
+        if (i<8)
+            buf[2] = 0x01 <<i;
+        else 
+            buf[0] = 0x01 << i-8;
 
         for (int j=0; j<5; ++j) {
-            //There are five column drives
-            //Pulse U3.
+            //There are five column drives to map (0-1, 2-3, 4-5, 6-7, 8-9)
+	        buf[1] = 0x01 << j;
 
-            gpio_put_masked(0xFF, 0x01<<j);
-            gpio_put(U3_CLK, true);
-            sleep_us(2);
-            gpio_put(U3_CLK, false);
+            //Send the flipflop data.
+            flipflop_output(buf);
 
-            switch_to_input();  
-            //need about 200uSec to get a sensible reading from the buffer
-            sleep_us(200);
+            switch_to_input();
+
+
             uint8_t result = gpio_get_all() & 0xFF;
-            switch_to_output();
 
-            //Unpulse U3 so nothing goes round!
-            gpio_put_masked(0xFF, 0x00);
-            gpio_put(U3_CLK, true);
-            sleep_us(2);
-            gpio_put(U3_CLK, false);
+            switch_to_output();
+            //Clear U3 to take away the +V drive so the motors don't actually go round!
+            buf[1] = 0x00;
+            flipflop_output(buf);
 
             //Now interpret the result.
             //bit 0x01 goes high on even row when homed
@@ -332,6 +332,6 @@ void calculate_flipflop_data(char *address_to_vend, uint8_t *buf) {
     }
 }
 
-
-
-
+char *vend_driver_strerror(vend_result err) {
+    return str_errors[err];
+}

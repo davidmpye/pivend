@@ -9,11 +9,12 @@
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
 
+#define MAX_ERR_STR_LENGTH 40
 
-
-//Failure codes for an attempt to vend
+//Result codes for an attempt to vend
 typedef enum {
     VEND_SUCCESS,                   //Successful vend
+    VEND_FAIL_NOT_HOME,             //The desired row was NOT home at the start of the vend cycle - ?jammed
     VEND_FAIL_NODROP,               //Not implemented yet 
     VEND_FAIL_INVALID_ADDRESS,      //No such address in machine
     VEND_FAIL_MOTOR_STUCK_HOME,     //Motor stuck in home pos
@@ -22,6 +23,7 @@ typedef enum {
     VEND_FAIL_UNKNOWN,              // ¯\_(ツ)_/¯
 } vend_result;
 
+char *vend_driver_strerror(vend_result);
 
 //Initialise the vend driver
 void vend_driver_init();
