@@ -7,7 +7,8 @@ project(pivend)
 add_executable(pivend
         pivend.c 
         vend_driver.c
-        )
+	serial.c
+)
 pico_enable_stdio_usb(pivend 1)
 pico_enable_stdio_uart(pivend 0)
 

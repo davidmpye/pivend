@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+#include <string.h>
 
 #define MAX_ERR_STR_LENGTH 40
 
@@ -40,7 +41,5 @@ vend_result vend_item(char *, bool);
 
 //Set whether you want the triac to be on or off to activate the compressor
 void set_chiller_state(bool);
-
-
 
 #endif

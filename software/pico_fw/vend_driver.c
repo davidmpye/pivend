@@ -86,9 +86,9 @@ void flipflop_clear() {
 
 vend_result vend_item(char *address, bool override) {
     //Sanity check the address
-    if (address[0] < 'A' || address[0] > 'G' || address[1] < '0' || address['1'] > '9')
+    if (strlen(address) != 2 || address[0] < 'A' || address[0] > 'G' || address[1] < '0' || address[1] > '9')
         return VEND_FAIL_INVALID_ADDRESS;
-
+        
     //Calculate the flipflop data for the address.
     uint8_t buf[3];
     calculate_flipflop_data(address, buf);
@@ -107,7 +107,7 @@ vend_result vend_item(char *address, bool override) {
     //For drinks rows, check the NO_CAN state.
     //Also, the motor_sense_gpio is different - doesn't use the comparator.
     if (address[0] == 'E' || address[0] == 'F') {
-        uint32_t no_can_gpio;
+        uint32_t no_can_gpio;   
         if (address[0] == 'E') {
             //E
             motor_pos_gpio = 4;
@@ -167,7 +167,7 @@ vend_result vend_item(char *address, bool override) {
 	}
 	stop_motors();
     return VEND_SUCCESS;
- }
+}
 
 void stop_motors() {
     uint8_t stop_data[] = { 0x00, 0x00, 0x00 };
@@ -199,7 +199,6 @@ void flipflop_output(uint8_t *data) {
     }
 }
 
-
 void vend_driver_map_machine() {
     //Go through each of the motor row and column combinations, and pulse the motor driver so briefly nothing moves
     //Read the comparator sense lines to work out if the motor is present, and if it is homed.
@@ -222,7 +221,6 @@ void vend_driver_map_machine() {
             flipflop_output(buf);
 
             switch_to_input();
-
 
             uint8_t result = gpio_get_all() & 0xFF;
 
@@ -313,8 +311,7 @@ void calculate_flipflop_data(char *address_to_vend, uint8_t *buf) {
     //0x08 - Row F Odd
 
     //U3:
-    //0x20 - Gum and mint row drive (no odd/even) 
-
+    //0x20 - Row G (Even?) Gum and mint row drive
     uint8_t bit_offset = 0;
 
     //if it's an odd row, add one to the bit offset to push it to the _ODD_ROW_DRV
