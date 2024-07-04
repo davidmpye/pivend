@@ -40,6 +40,6 @@ void vend_driver_map_machine();
 vend_result vend_item(char *, bool);
 
 //Set whether you want the triac to be on or off to activate the compressor
-void set_chiller_state(bool);
+void vend_driver_set_chiller_on(bool);
 
 #endif

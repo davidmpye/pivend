@@ -7,22 +7,34 @@
 
 //FIXED BUFFER
 #define CMD_BUFLEN 32
-char buf[CMD_BUFLEN];
 
-unsigned char *serial_readline() {
+unsigned char *serial_process_input() {
+    static char buf[CMD_BUFLEN];
+    static unsigned int index = 0;
 
-    unsigned int chars_read = 0;
-    while (chars_read < CMD_BUFLEN) {
-        
-        buf[chars_read++] = getchar();
-        if (buf[chars_read-1] == '\r') {
-            buf[chars_read-1] = 0x00; //Null terminate it.
-            return buf;
-        }
+    char c = getchar_timeout_us(1000);
+    if (c == PICO_ERROR_TIMEOUT) {
+        //No chars ready
+        return NULL;
     }
-    //You get an empty string.
-    buf[0] = 0x00;
-    return buf;
+
+    buf[index++] = c;
+    
+    if (index==CMD_BUFLEN-1) {
+        //We've hit the end of the buffer - this shouldn't happen.
+        //Return NULL.
+        index = 0;
+        return NULL;
+    }
+
+    if (c == '\r') { 
+        //Null terminate the string and return it.
+        buf[index] = 0x00;
+        index = 0;
+        return buf;
+    }
+
+    return NULL; //no string (yet)
 }   
 
 command_struct serial_parse_line(char *line) {

@@ -32,7 +32,7 @@ char str_errors[][MAX_ERR_STR_LENGTH] = {
     "Unknown failure"
 };
 
-bool chiller_state = false;
+bool chiller_on = false;
 
 //Functions start here
 void vend_driver_init() {
@@ -50,8 +50,8 @@ void vend_driver_init() {
 }
 
 //Decide whether the triac is supposed to be enabled or disabled.
-void vend_driver_set_chiller_state(bool state) {
-    chiller_state = state;
+void vend_driver_set_chiller_on(bool on) {
+    chiller_on = on;
     //This will cause our triac state to pushed out via the flipflops straightaway
     stop_motors();
 }
@@ -184,7 +184,7 @@ void flipflop_output(uint8_t *data) {
         U4_CLK,
     };
 
-    if (chiller_state) {
+    if (chiller_on) {
         //Automatically add in the desired triac state to U2's data (it's bit 4)
         data[0] |= 0x10;
     }

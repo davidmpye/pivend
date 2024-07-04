@@ -15,6 +15,9 @@
 #include "vend_driver.h"
 #include "serial.h"
 
+float temperature;
+
+
 int main() {
     stdio_init_all();
 
@@ -27,10 +30,12 @@ int main() {
 
     sleep_ms(3000);
     //Start with chiller off
-    vend_driver_set_chiller_state(false);
+    vend_driver_set_chiller_on(false);
     
     while (true) {
-        char *line = serial_readline();
+        char *line = serial_process_input();
+        if (line == NULL) continue;
+        
         command_struct s =  serial_parse_line(line);
 
         switch (s.cmd) {
